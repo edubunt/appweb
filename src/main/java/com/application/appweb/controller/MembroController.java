@@ -1,77 +1,92 @@
 package com.application.appweb.controller;
 
-import java.util.List;
-
-import org.springframework.beans.factory.annotation.Autowired;
+import com.application.appweb.dto.request.MembroRequest;
+import com.application.appweb.dto.response.ApiResponse;
+import com.application.appweb.dto.response.MembroResponse;
+import com.application.appweb.service.MembroService;
+import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-import com.application.appweb.model.Membro;
-import com.application.appweb.service.MembroService;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/membros")
-@CrossOrigin(origins = "/*")
+@RequestMapping("/api/membros")
+@Slf4j
 public class MembroController {
 
-    @Autowired
-    private MembroService membroService;
+    private final MembroService membroService;
 
-    // buscar todos os membros
+    public MembroController(MembroService membroService) {
+        this.membroService = membroService;
+    }
+
     @GetMapping
-    public ResponseEntity<List<Membro>> getAllMembros(){
-        List<Membro> membro = membroService.getAllMembros();
-        return new ResponseEntity<>(membro,HttpStatus.OK);
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<MembroResponse>>> getAllMembros() {
+        log.info("Fetching all members");
+        List<MembroResponse> membros = membroService.getAllMembros().stream()
+                .map(MembroResponse::fromMembro)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(membros, "Members retrieved successfully"));
     }
-    //budcar pelo ID
+
     @GetMapping("/{id}")
-    public ResponseEntity<Membro> findMembroById(@PathVariable Long id){
-        Membro membro = membroService.findMembroById(id);
-        return new ResponseEntity<>(membro,HttpStatus.OK);
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<MembroResponse>> getMembroById(@PathVariable Long id) {
+        log.info("Fetching member with id: {}", id);
+        MembroResponse membro = MembroResponse.fromMembro(membroService.findMembroById(id));
+        return ResponseEntity.ok(ApiResponse.success(membro, "Member retrieved successfully"));
     }
-    //Salvar membros
-    @PreAuthorize("hasAnyRole( 'ADMIN')")
+
     @PostMapping
-    public ResponseEntity<Membro> createMempros(@RequestBody Membro menbro){
-        Membro novMembro = membroService.creatMembro(menbro);
-        return new ResponseEntity<>(novMembro,HttpStatus.CREATED);
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<MembroResponse>> createMembro(@Valid @RequestBody MembroRequest membroRequest) {
+        log.info("Creating new member: {}", membroRequest.nome());
+        MembroResponse membro = MembroResponse.fromMembro(membroService.creatMembro(membroRequest));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(membro, "Member created successfully"));
     }
-    //Atualizar
-    @PreAuthorize("hasAnyRole( 'ADMIN')")
+
     @PutMapping("/{id}")
-    public ResponseEntity<Membro> updateMembros(@PathVariable Long id,@RequestBody Membro membroDetails){
-        Membro membro  = membroService.updateMembro(id, membroDetails);
-        return new ResponseEntity<>(membro,HttpStatus.OK);
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<MembroResponse>> updateMembro(@PathVariable Long id, @Valid @RequestBody MembroRequest membroRequest) {
+        log.info("Updating member with id: {}", id);
+        MembroResponse membro = MembroResponse.fromMembro(membroService.updateMembro(id, membroRequest));
+        return ResponseEntity.ok(ApiResponse.success(membro, "Member updated successfully"));
     }
-    // Deletar
-    @PreAuthorize("hasAnyRole( 'ADMIN')")
+
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteMembros(@PathVariable Long id){
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteMembro(@PathVariable Long id) {
+        log.info("Deleting member with id: {}", id);
         membroService.deleteMembro(id);
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        return ResponseEntity.noContent().build();
     }
-    //Buscar por intevalos
-    @GetMapping("/idade")
-    public ResponseEntity<List<Membro>> getMembros(@RequestParam("idadeMinima") int idadeMinima,
-                                                   @RequestParam("idadeMaxima") int idadeMaxima){
-        List<Membro> membros = membroService.getMembrosByIdade(idadeMinima, idadeMaxima);
-        return new ResponseEntity<>(membros,HttpStatus.OK);
+
+    @GetMapping("/age-range")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<MembroResponse>>> getMembrosByAge(
+            @RequestParam int minAge,
+            @RequestParam int maxAge) {
+        log.info("Fetching members between ages {} and {}", minAge, maxAge);
+        List<MembroResponse> membros = membroService.getMembrosByIdade(minAge, maxAge).stream()
+                .map(MembroResponse::fromMembro)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(membros, "Members retrieved successfully"));
     }
-    @GetMapping("/buscar")
-    public ResponseEntity<List<Membro>> getMembrosByNome(@RequestParam String nome){
-        List<Membro> membros = membroService.getMembrosByNome(nome);
-        return ResponseEntity.ok(membros);
+
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<List<MembroResponse>>> getMembrosByNome(@RequestParam String nome) {
+        log.info("Searching members by name: {}", nome);
+        List<MembroResponse> membros = membroService.getMembrosByNome(nome).stream()
+                .map(MembroResponse::fromMembro)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(membros, "Members found successfully"));
     }
 }
-

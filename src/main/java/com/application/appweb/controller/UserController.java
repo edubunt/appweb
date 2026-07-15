@@ -1,22 +1,19 @@
 package com.application.appweb.controller;
 
-
-import com.application.appweb.dto.LoginRequest;
-import com.application.appweb.dto.UserResponseDto;
-import com.application.appweb.dto.UserUpdateDto;
+import com.application.appweb.dto.response.ApiResponse;
+import com.application.appweb.dto.response.UserResponse;
 import com.application.appweb.service.UserService;
-import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-import java.net.URI;
 import java.util.List;
-import java.util.Set;
 
 @RestController
-@RequestMapping("/users")
-@CrossOrigin(origins = "/*")
+@RequestMapping("/api/users")
+@Slf4j
 public class UserController {
 
     private final UserService userService;
@@ -25,52 +22,27 @@ public class UserController {
         this.userService = userService;
     }
 
-    // Listar todos os usuários
     @GetMapping
-    public ResponseEntity<List<UserResponseDto>> getAllUsers() {
-        List<UserResponseDto> users = userService.getAllUsers();
-        return ResponseEntity.ok(users);
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
+        log.info("Fetching all users");
+        List<UserResponse> users = userService.getAllUsers();
+        return ResponseEntity.ok(ApiResponse.success(users, "Users retrieved successfully"));
     }
 
-    // Buscar usuário por ID
     @GetMapping("/{id}")
-    public ResponseEntity<UserResponseDto> getUserById(@PathVariable Long id) {
-        UserResponseDto user = userService.getUserById(id);
-        return ResponseEntity.ok(user);
+    @PreAuthorize("hasRole('ADMIN') or @userService.isCurrentUser(#id)")
+    public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable Long id) {
+        log.info("Fetching user with id: {}", id);
+        UserResponse user = userService.getUserById(id);
+        return ResponseEntity.ok(ApiResponse.success(user, "User retrieved successfully"));
     }
 
-    // Criar novo usuário
-    @PostMapping
-    public ResponseEntity<UserResponseDto> createUser(@Valid @RequestBody LoginRequest userDto,
-                                                      @RequestParam(required = false) Set<String> roles) {
-        UserResponseDto createdUser = userService.createUser(userDto, roles);
-        URI location = ServletUriComponentsBuilder
-                .fromCurrentRequest()
-                .path("/{id}")
-                .buildAndExpand(createdUser.id())
-                .toUri();
-        return ResponseEntity.created(location).body(createdUser);
-    }
-
-    // Atualizar usuário existente
-    @PutMapping("/{id}")
-    public ResponseEntity<UserResponseDto> updateUser(@PathVariable Long id,
-                                                      @Valid @RequestBody UserUpdateDto updateDto) {
-        UserResponseDto updatedUser = userService.updateUser(id, updateDto);
-        return ResponseEntity.ok(updatedUser);
-    }
-
-    // Deletar usuário
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long id) {
+        log.info("Deleting user with id: {}", id);
         userService.deleteUser(id);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 }
-
-
-
-
-
-
-
