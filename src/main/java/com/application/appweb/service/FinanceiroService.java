@@ -1,12 +1,15 @@
 package com.application.appweb.service;
 
-
+import com.application.appweb.dto.request.FinanceiroRequest;
+import com.application.appweb.exception.InvalidInputException;
 import com.application.appweb.model.Financeiro;
 import com.application.appweb.model.Membro;
 import com.application.appweb.repository.FinanceiroRepository;
 import com.application.appweb.repository.MembroRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.application.appweb.util.ValidationUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,96 +17,133 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
+@Transactional
+@Slf4j
 public class FinanceiroService {
 
-    @Autowired
-    private FinanceiroRepository financeiroRepository;
-    @Autowired
-    private MembroRepository membroRepository;
+    private final FinanceiroRepository financeiroRepository;
+    private final MembroRepository membroRepository;
 
-    public List<Financeiro> findByMembroNome(String nome) {
-        return financeiroRepository.findByMembroNomeContainingIgnoreCase(nome);
+    public FinanceiroService(FinanceiroRepository financeiroRepository, MembroRepository membroRepository) {
+        this.financeiroRepository = financeiroRepository;
+        this.membroRepository = membroRepository;
     }
 
-    public List<Financeiro> findByMembroId(Long membroId) {
-        return financeiroRepository.findByMembroId(membroId);
-    }
-
+    @Transactional(readOnly = true)
     public Optional<Financeiro> getRegistroById(Long id) {
+        log.debug("Fetching financial record with id: {}", id);
         return financeiroRepository.findById(id);
     }
 
-    public Financeiro createRegistro(Financeiro financeiro) {
-        if (financeiro.getMembro() != null && financeiro.getMembro().getId() != null) {
-            Membro membro = membroRepository.findById(financeiro.getMembro().getId())
-                    .orElseThrow(() -> new RuntimeException("Membro não encontrado"));
-
-            financeiro.setMembro(membro); // Garantindo que o membro está gerenciado
-        }
-
-        return financeiroRepository.save(financeiro);
+    @Transactional(readOnly = true)
+    public List<Financeiro> findByMembroId(Long membroId) {
+        log.debug("Fetching financial records for member id: {}", membroId);
+        return financeiroRepository.findByMembroId(membroId);
     }
 
+    @Transactional(readOnly = true)
+    public List<Financeiro> findByMembroNome(String nome) {
+        log.debug("Fetching financial records for member name: {}", nome);
+        ValidationUtil.validateStringNotEmpty(nome, "Member name");
+        return financeiroRepository.findByMembroNomeContainingIgnoreCase(nome);
+    }
 
+    public Financeiro createRegistro(FinanceiroRequest request) {
+        log.info("Creating new financial record: {}", request.descricao());
+        ValidationUtil.validateNotNull(request, "Financial request");
+
+        Financeiro financeiro = new Financeiro();
+        financeiro.setDescricao(request.descricao());
+        financeiro.setValor(request.valor());
+        financeiro.setTipoRegistro(request.tipo());
+        financeiro.setDataRegistro(request.dataTransacao());
+
+        if (request.membroId() != null) {
+            Membro membro = membroRepository.findById(request.membroId())
+                    .orElseThrow(() -> new InvalidInputException("Member not found with id: " + request.membroId()));
+            financeiro.setMembro(membro);
+        }
+
+        Financeiro saved = financeiroRepository.save(financeiro);
+        log.info("Financial record created with id: {}", saved.getId());
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
     public List<Financeiro> getRegistrosByPeriodo(LocalDate dataInicio, LocalDate dataFim) {
+        log.debug("Fetching financial records between {} and {}", dataInicio, dataFim);
+        ValidationUtil.validateDateRange(dataInicio, dataFim);
         return financeiroRepository.findByDataRegistroBetween(dataInicio, dataFim);
     }
 
+    @Transactional(readOnly = true)
+    public List<Financeiro> getRegistrosByTipo(com.application.appweb.enumModel.TipoTransacao tipo, LocalDate dataInicio, LocalDate dataFim) {
+        log.debug("Fetching {} records between {} and {}", tipo, dataInicio, dataFim);
+        ValidationUtil.validateDateRange(dataInicio, dataFim);
+        ValidationUtil.validateNotNull(tipo, "Transaction type");
+        return financeiroRepository.findByTipoRegistroAndDataRegistroBetween(tipo, dataInicio, dataFim);
+    }
+
+    @Transactional(readOnly = true)
     public BigDecimal getTotalEntradas(LocalDate dataInicio, LocalDate dataFim) {
-        return financeiroRepository.findByTipoRegistroAndDataRegistroBetween(Financeiro.TipoRegistro.ENTRADA, dataInicio, dataFim)
+        log.debug("Calculating total entries between {} and {}", dataInicio, dataFim);
+        ValidationUtil.validateDateRange(dataInicio, dataFim);
+        return financeiroRepository
+                .findByTipoRegistroAndDataRegistroBetween(com.application.appweb.enumModel.TipoTransacao.ENTRADA, dataInicio, dataFim)
                 .stream()
                 .map(Financeiro::getValor)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    @Transactional(readOnly = true)
     public BigDecimal getTotalSaidas(LocalDate dataInicio, LocalDate dataFim) {
-        return financeiroRepository.findByTipoRegistroAndDataRegistroBetween(Financeiro.TipoRegistro.SAIDA, dataInicio, dataFim)
+        log.debug("Calculating total exits between {} and {}", dataInicio, dataFim);
+        ValidationUtil.validateDateRange(dataInicio, dataFim);
+        return financeiroRepository
+                .findByTipoRegistroAndDataRegistroBetween(com.application.appweb.enumModel.TipoTransacao.SAIDA, dataInicio, dataFim)
                 .stream()
                 .map(Financeiro::getValor)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    @Transactional(readOnly = true)
     public BigDecimal getSaldo(LocalDate dataInicio, LocalDate dataFim) {
+        log.debug("Calculating balance between {} and {}", dataInicio, dataFim);
         BigDecimal totalEntradas = getTotalEntradas(dataInicio, dataFim);
         BigDecimal totalSaidas = getTotalSaidas(dataInicio, dataFim);
         return totalEntradas.subtract(totalSaidas);
     }
 
-    // Atualizar Registro
-    public Optional<Financeiro> updateRegistro(Long id, Financeiro financeiroAtualizado) {
-        Optional<Financeiro> optionalFinanceiro = financeiroRepository.findById(id);
-        if (optionalFinanceiro.isPresent()) {
-            Financeiro financeiroExistente = optionalFinanceiro.get();
+    public Optional<Financeiro> updateRegistro(Long id, FinanceiroRequest request) {
+        log.info("Updating financial record with id: {}", id);
+        ValidationUtil.validateNotNull(request, "Financial request");
 
-            // Validação básica: Garantir que o valor não seja negativo
-            if (financeiroAtualizado.getValor() != null && financeiroAtualizado.getValor().compareTo(BigDecimal.ZERO) < 0) {
-                throw new IllegalArgumentException("O valor do registro não pode ser negativo.");
+        return financeiroRepository.findById(id).map(financeiroExistente -> {
+            financeiroExistente.setDescricao(request.descricao());
+            financeiroExistente.setValor(request.valor());
+            financeiroExistente.setTipoRegistro(request.tipo());
+            financeiroExistente.setDataRegistro(request.dataTransacao());
+
+            if (request.membroId() != null) {
+                Membro membro = membroRepository.findById(request.membroId())
+                        .orElseThrow(() -> new InvalidInputException("Member not found with id: " + request.membroId()));
+                financeiroExistente.setMembro(membro);
             }
 
-            // Atualiza os campos permitidos
-            financeiroExistente.setDescricao(financeiroAtualizado.getDescricao());
-            financeiroExistente.setValor(financeiroAtualizado.getValor());
-            financeiroExistente.setTipoRegistro(financeiroAtualizado.getTipoRegistro());
-            financeiroExistente.setDataRegistro(financeiroAtualizado.getDataRegistro());
-            financeiroExistente.setMembro(financeiroAtualizado.getMembro());
-
-            return Optional.of(financeiroRepository.save(financeiroExistente));
-        }
-        return Optional.empty(); // Retorna vazio se o registro não for encontrado
+            Financeiro updated = financeiroRepository.save(financeiroExistente);
+            log.info("Financial record with id {} updated successfully", id);
+            return updated;
+        });
     }
 
-    // Deletar Registro
     public boolean deleteRegistro(Long id) {
-        Optional<Financeiro> optionalFinanceiro = financeiroRepository.findById(id);
-        if (optionalFinanceiro.isPresent()) {
+        log.info("Deleting financial record with id: {}", id);
+        if (financeiroRepository.existsById(id)) {
             financeiroRepository.deleteById(id);
-            return true; // Registro deletado com sucesso
+            log.info("Financial record with id {} deleted successfully", id);
+            return true;
         }
-        return false; // Registro não encontrado
-    }
-
-    public List<Financeiro> getRegistrosByTipo(Financeiro.TipoRegistro tipoRegistro, LocalDate dataInicio, LocalDate dataFim) {
-        return financeiroRepository.findByTipoRegistroAndDataRegistroBetween(tipoRegistro, dataInicio, dataFim);
+        log.warn("Financial record with id {} not found", id);
+        return false;
     }
 }
-
